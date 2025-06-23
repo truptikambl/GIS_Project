@@ -104,7 +104,7 @@ gis_project/
 └── README.md
 
 🧑‍💻 Author
-Dhanvantari Latambale
+Trupti Kamble 
 
 
 
