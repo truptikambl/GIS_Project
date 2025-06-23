@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>GIS Map</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+  <style>
+    #map { height: 600px; margin-top: 10px; }
+    .form-row {
+      margin: 5px 0;
+    }
+    label {
+      margin-right: 5px;
+      font-weight: bold;
+    }
+    select {
+      margin-right: 20px;
+    }
+  </style>
+</head>
+<body>
+  <h2>SAMRUDDHI</h2>
+
+  <div class="form-row">
+    <label for="stateSelect">State:</label>
+    <select id="stateSelect"><option value="">Select</option></select>
+
+    <label for="districtSelect">District:</label>
+    <select id="districtSelect"><option value="">Select</option></select>
+
+    <label for="talukaSelect">Taluka:</label>
+    <select id="talukaSelect"><option value="">Select</option></select>
+
+    <label for="villageSelect">Village:</label>
+    <select id="villageSelect"><option value="">Select</option></select>
+  </div>
+
+  <div id="map"></div>
+
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+  <script>
+    const map = L.map('map').setView([20.5937, 78.9629], 5);
+
+    const osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '© OpenStreetMap'
+    });
+
+    const terrain = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
+      attribution: '© OpenTopoMap'
+    });
+
+    const esriSat = L.tileLayer('https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+      attribution: '© Esri Satellite'
+    });
+
+    const esriLabels = L.tileLayer('https://services.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', {
+      attribution: '© Esri Labels'
+    });
+
+    const satellite = L.layerGroup([esriSat, esriLabels]);
+
+    osm.addTo(map);
+
+    L.control.layers({
+      "OpenStreetMap": osm,
+      "Satellite": satellite,
+      "Terrain": terrain
+    }).addTo(map);
+
+    let highlightLayer = null;
+
+    function highlightPolygon(level, id, color) {
+      if (!id) return;
+
+      fetch(`/geojson/${level}/${id}/`)
+        .then(res => res.json())
+        .then(geojson => {
+          if (highlightLayer) {
+            map.removeLayer(highlightLayer);
+          }
+
+          highlightLayer = L.geoJSON(geojson, {
+            style: {
+              color: color || 'blue',
+              weight: 2,
+              fillOpacity: 0
+            }
+          }).addTo(map);
+
+          map.fitBounds(highlightLayer.getBounds());
+        });
+    }
+
+    function loadDropdown(url, elementId, nextElementId = null) {
+      fetch(url)
+        .then(res => res.json())
+        .then(data => {
+          const select = document.getElementById(elementId);
+          select.innerHTML = `<option value="">Select</option>`;
+          data.forEach(item => {
+            select.innerHTML += `<option value="${item.id}">${item.name}</option>`;
+          });
+
+          if (nextElementId) {
+            document.getElementById(nextElementId).innerHTML = `<option value="">Select</option>`;
+          }
+        });
+    }
+
+    document.getElementById("stateSelect").addEventListener("change", function () {
+      const stateId = this.value;
+      highlightPolygon('state', stateId, 'blue');
+      loadDropdown(`/api/districts/?state=${stateId}`, "districtSelect", "talukaSelect");
+    });
+
+    document.getElementById("districtSelect").addEventListener("change", function () {
+      const districtId = this.value;
+      highlightPolygon('district', districtId, 'purple');
+      loadDropdown(`/api/talukas/?district=${districtId}`, "talukaSelect", "villageSelect");
+    });
+
+    document.getElementById("talukaSelect").addEventListener("change", function () {
+      const talukaId = this.value;
+      highlightPolygon('taluka', talukaId, 'orange');
+      loadDropdown(`/api/villages/?taluka=${talukaId}`, "villageSelect");
+    });
+
+    document.getElementById("villageSelect").addEventListener("change", function () {
+      const villageId = this.value;
+      if (!villageId) return;
+
+      fetch(`/geojson/village/${villageId}/`)
+        .then(res => res.json())
+        .then(geojson => {
+          if (highlightLayer) {
+            map.removeLayer(highlightLayer);
+          }
+
+          highlightLayer = L.geoJSON(geojson, {
+            style: {
+              color: 'blue',
+              weight: 2,
+              fillOpacity: 0
+            }
+          }).addTo(map);
+
+          map.fitBounds(highlightLayer.getBounds());
+
+          // Village Popup info
+          fetch(`/api/village-data/${villageId}/`)
+            .then(res => res.json())
+            .then(json => {
+              const info = json.data;
+              highlightLayer.eachLayer(layer => {
+                layer.bindPopup(`
+                  <b>Village:</b> ${info.name}<br/>
+                  <b>Population:</b> ${info.population || 'N/A'}<br/>
+                  <b>Pincode:</b> ${info.pincode || 'N/A'}
+                `).openPopup();
+              });
+            });
+        });
+    });
+
+    // Load Mahamarg
+    fetch('/static/mahamarg.geojson')
+      .then(res => res.json())
+      .then(data => {
+        L.geoJSON(data, {
+          style: {
+            color: 'blue',
+            weight: 4
+          }
+        }).addTo(map);
+      });
+
+    // Initial state list
+    loadDropdown('/api/states/', 'stateSelect', 'districtSelect');
+  </script>
+</body>
+</html>
